@@ -6,6 +6,10 @@
  *   node auto-run.mjs --type=free      # 自由跑（stopFreeRunV220），测试用
  *   node auto-run.mjs --type=formal    # 正式跑（stopRunV278），需打卡点，落地用
  *
+ * 配置文件可用 --config 指定（默认 config.json，相对路径先按当前工作目录、再按脚本目录解析）：
+ *   node auto-run.mjs --type=formal --config=config-2025009162.json
+ *   node auto-run.mjs --preview --config=D:/secrets/happyrun.json
+ *
  * config.json 由方案 A 抓包得到（在小程序登录一次，导出 vuex 持久化数据）：
  *   {
  *     "school_id": 1001, "term_id": 1, "course_id": 99, "class_id": 50,
@@ -29,7 +33,7 @@ import { planRoute, planRunRouteNet } from './lib/route.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const ROOT = path.dirname(__filename);
-const CONFIG_PATH = path.join(ROOT, 'config.json');
+const DEFAULT_CONFIG_PATH = path.join(ROOT, 'config.json');
 
 function log(...a) {
   console.log('[happyrun]', ...a);
@@ -45,11 +49,24 @@ function parseArgs() {
   return args;
 }
 
+/** 解析配置文件路径：--config 优先，否则 config.json；相对路径先按 cwd 再按脚本目录 */
+function resolveConfigPath() {
+  const args = parseArgs();
+  const raw = typeof args.config === 'string' && args.config.trim() ? args.config.trim() : 'config.json';
+  if (path.isAbsolute(raw)) return raw;
+  const cwdPath = path.resolve(process.cwd(), raw);
+  if (fs.existsSync(cwdPath)) return cwdPath;
+  const rootPath = path.join(ROOT, raw);
+  if (fs.existsSync(rootPath)) return rootPath;
+  return cwdPath; // 都不存在时按 cwd 报错，保留用户输入的原貌
+}
+
 function loadConfig() {
-  if (!fs.existsSync(CONFIG_PATH)) {
-    throw new Error(`缺少 config.json（方案 A 抓包导出）。请先在小程序登录一次，导出 vuex 数据后写入 ${CONFIG_PATH}`);
+  const configPath = resolveConfigPath();
+  if (!fs.existsSync(configPath)) {
+    throw new Error(`缺少配置文件（方案 A 抓包导出）：${configPath}\n请先在小程序登录一次，导出 vuex 数据后写入（或用 --config=<路径> 指定）`);
   }
-  return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  return JSON.parse(fs.readFileSync(configPath, 'utf8'));
 }
 
 async function sleep(ms) {
@@ -225,7 +242,7 @@ async function runOnce(opts) {
     }
   } catch (e) {
     if (e instanceof AuthExpiredError) {
-      log('❌ 登录失效，请重新抓包导出 config.json（uid/token 已过期）');
+      log('❌ 登录失效，请重新抓包导出配置文件（uid/token 已过期）');
       return;
     }
     throw e;
@@ -655,6 +672,7 @@ async function main() {
   const args = parseArgs();
   const type = args.type === 'formal' ? 'formal' : 'free';
   const cfg = loadConfig();
+  log(`配置文件: ${resolveConfigPath()}`);
   const run = Object.assign(
     { distanceKm: 2.5, usedTimeS: 900, centerLat: 37.87, centerLon: 112.55 },
     cfg.run || {},
@@ -667,7 +685,7 @@ async function main() {
     }
   } catch (e) {
     if (e instanceof AuthExpiredError) {
-      log('❌ 登录失效，请重新抓包导出 config.json');
+      log('❌ 登录失效，请重新抓包导出配置文件');
       process.exit(2);
     }
     console.error(e);
